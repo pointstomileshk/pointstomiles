@@ -693,67 +693,89 @@ const App = () => {
 
   useEffect(() => {
     if (mode === 'transit') {
-      const getIata = (str) => { const m = str.match(/\(([A-Z]{3})\)/); return m ? m[1] : ''; };
+      const getIata = (str) => { const m = String(str).match(/\(([A-Z]{3})\)/); return m ? m[1] : ''; };
       const iata1 = getIata(t1Name);
       const iata2 = getIata(t2Name);
       if (hub === 'TPE') {
         if (iata1 && TPE_ROUTES[iata1]) { setT1Dist(TPE_ROUTES[iata1].distance); setT1Grp(TPE_ROUTES[iata1].group); }
-        else { setT1Dist(0); setT1Name(''); }
+        else if (iata1) { setT1Dist(0); setT1Name(''); }
         if (iata2 && TPE_ROUTES[iata2]) { setT2Dist(TPE_ROUTES[iata2].distance); setT2Grp(TPE_ROUTES[iata2].group); }
-        else { setT2Dist(0); setT2Name(''); }
+        else if (iata2) { setT2Dist(0); setT2Name(''); }
       } else if (hub === 'HKG') {
         if (iata1 && airports[iata1]) { setT1Dist(airports[iata1].distance); setT1Grp(airports[iata1].group); }
-        else setT1Dist(0);
+        else if (iata1) setT1Dist(0);
         if (iata2 && airports[iata2]) { setT2Dist(airports[iata2].distance); setT2Grp(airports[iata2].group); }
-        else setT2Dist(0);
+        else if (iata2) setT2Dist(0);
       }
     }
   }, [hub, mode, t1Name, t2Name, airports]); 
 
   const analysis = useMemo(() => {
-    if (mode === 'direct') {
-      if (dDist === '') return null;
-      const dist = Number(dDist);
-      if (dist === 0 && dName) return { error: "起點與終點不能相同 (距離為 0)" };
-      if (dist === 0) return null;
-      const zone = getZone(dist, dGrp);
-      const miles = AWARD_CHART[zone][dCabin];
-      return { type: 'direct', distance: dist, zone, miles, error: miles === 0 ? "此區不設所選艙等" : null };
-    } else {
-      if (t1Dist === '' || t2Dist === '') return null;
-      const dist1 = Number(t1Dist); const dist2 = Number(t2Dist);
-      const t1IataMatch = t1Name.match(/\(([A-Z]{3})\)/);
-      const t2IataMatch = t2Name.match(/\(([A-Z]{3})\)/);
-      const t1Iata = t1IataMatch ? t1IataMatch[1] : '';
-      const t2Iata = t2IataMatch ? t2IataMatch[1] : '';
-      if ((t1Iata === hub && t1Iata !== '') || (t2Iata === hub && t2Iata !== '')) { return { error: `無效航線：起點或終點不能與轉機點相同 (${hub} ✈ ${hub})` }; }
-      if (t1Iata === t2Iata && t1Iata !== '') { return { error: "無效航線：起點與終點不能相同" }; }
-      if (hub === 'TPE') {
-          const validTpeRoutes = ['HKG', 'KIX', 'NRT', 'NGO'];
-          if ((t1Name && !validTpeRoutes.includes(t1Iata)) || (t2Name && !validTpeRoutes.includes(t2Iata))) {
-              return { error: "警告：國泰航空以台北(TPE)為中轉之直營航線，僅限飛往 香港(HKG)、大阪(KIX)、東京成田(NRT) 及 名古屋(NGO)" };
-          }
-      }
-      if ((dist1 === 0 && t1Name) || (dist2 === 0 && t2Name)) { return { error: "航段距離不能為 0，請選擇正確的營運航點" }; }
-      if (dist1 === 0 || dist2 === 0) return null;
-      const totalDist = dist1 + dist2;
-      const totalZone = getZone(totalDist, t1Grp === 3 || t2Grp === 3 ? 3 : 1);
-      const m1 = AWARD_CHART[totalZone][t1Cabin]; const m2 = AWARD_CHART[totalZone][t2Cabin];
-      if (m1 === 0 || m2 === 0) return { error: `區間 (${totalZone}) 不支援其中一艙等` };
-      const isSameCabin = t1Cabin === t2Cabin;
-      const mixedMiles = Math.round(((dist1 / totalDist) * m1 + (dist2 / totalDist) * m2) / 100) * 100;
-      const cabinWeights = { eco: 1, pe: 2, biz: 3, first: 4 };
-      const highestCabin = cabinWeights[t1Cabin] >= cabinWeights[t2Cabin] ? t1Cabin : t2Cabin;
-      const stdHighestMiles = AWARD_CHART[totalZone][highestCabin];
-      const separateMiles = AWARD_CHART[getZone(dist1, t1Grp)][t1Cabin] + AWARD_CHART[getZone(dist2, t2Grp)][t2Cabin];
-      let strategies = [];
-      if (isSameCabin) {
-        strategies = [{ name: "全程單一艙位", miles: stdHighestMiles, id: "highest" }, { name: "分開單程兌換", miles: separateMiles, id: "separate" }].filter(s => s.miles > 0);
+    try {
+      if (mode === 'direct') {
+        if (dDist === '' || dDist === null) return null;
+        const dist = Number(dDist);
+        if (dist === 0 && dName) return { error: "起點與終點不能相同 (距離為 0)" };
+        if (dist === 0) return null;
+        const zone = getZone(dist, dGrp);
+        const miles = AWARD_CHART[zone][dCabin] || 0;
+        return { type: 'direct', distance: dist, zone, miles, error: miles === 0 ? "此區不設所選艙等" : null };
       } else {
-        strategies = [{ name: "混合艙 (新制)", miles: mixedMiles, id: "mixed" }, { name: "全程最高艙位", miles: stdHighestMiles, id: "highest" }, { name: "分開單程兌換", miles: separateMiles, id: "separate" }].filter(s => s.miles > 0);
+        const dist1 = Number(t1Dist);
+        const dist2 = Number(t2Dist);
+        if (dist1 <= 0 || dist2 <= 0) return null;
+
+        const iata1 = (String(t1Name).match(/\(([A-Z]{3})\)/) || [])[1] || '';
+        const iata2 = (String(t2Name).match(/\(([A-Z]{3})\)/) || [])[1] || '';
+        
+        if (iata1 === hub || iata2 === hub) return { error: `無效航線：起點或終點不能與轉機點相同 (${hub})` };
+        if (iata1 === iata2 && iata1 !== '') return { error: "無效航線：起點與終點不能相同" };
+        
+        const totalDist = dist1 + dist2;
+        const totalZone = getZone(totalDist, t1Grp === 3 || t2Grp === 3 ? 3 : 1);
+        const m1 = AWARD_CHART[totalZone]?.[t1Cabin] ?? 0;
+        const m2 = AWARD_CHART[totalZone]?.[t2Cabin] ?? 0;
+
+        if (m1 === 0 || m2 === 0) return { error: `區間 (${totalZone}) 不支援其中一艙等` };
+
+        const isSameCabin = t1Cabin === t2Cabin;
+        const mixedMiles = Math.round(((dist1 / totalDist) * m1 + (dist2 / totalDist) * m2) / 100) * 100;
+        
+        const cabinWeights = { eco: 1, pe: 2, biz: 3, first: 4 };
+        const highestCabin = cabinWeights[t1Cabin] >= cabinWeights[t2Cabin] ? t1Cabin : t2Cabin;
+        const stdHighestMiles = AWARD_CHART[totalZone][highestCabin] || 0;
+        
+        const separateMiles = (AWARD_CHART[getZone(dist1, t1Grp)][t1Cabin] || 0) + (AWARD_CHART[getZone(dist2, t2Grp)][t2Cabin] || 0);
+
+        let strategies = [];
+        if (isSameCabin) {
+          strategies = [
+            { name: "全程單一艙位", miles: stdHighestMiles, id: "highest" },
+            { name: "分開單程兌換", miles: separateMiles, id: "separate" }
+          ].filter(s => s.miles > 0);
+        } else {
+          strategies = [
+            { name: "混合艙 (新制)", miles: mixedMiles, id: "mixed" },
+            { name: "全程最高艙位", miles: stdHighestMiles, id: "highest" },
+            { name: "分開單程兌換", miles: separateMiles, id: "separate" }
+          ].filter(s => s.miles > 0 && !isNaN(s.miles));
+        }
+
+        const best = strategies.length > 0 ? strategies.reduce((prev, curr) => (curr.miles < prev.miles ? curr : prev)) : null;
+        
+        return { 
+          type: 'transit', 
+          dist1, dist2, totalDist, 
+          zone: totalZone, 
+          miles: isSameCabin ? stdHighestMiles : mixedMiles, 
+          isSameCabin, 
+          strategies, 
+          bestId: best ? best.id : null, 
+          error: null 
+        };
       }
-      const best = strategies.length > 0 ? strategies.reduce((prev, curr) => (curr.miles < prev.miles ? curr : prev)) : null;
-      return { type: 'transit', dist1, dist2, totalDist, zone: totalZone, miles: isSameCabin ? stdHighestMiles : mixedMiles, isSameCabin, strategies, bestId: best ? best.id : null, error: null };
+    } catch (e) {
+      return { error: "計算出錯，請檢查輸入數據" };
     }
   }, [mode, dDist, dGrp, dCabin, dName, t1Dist, t1Grp, t1Cabin, t1Name, t2Dist, t2Grp, t2Cabin, t2Name, hub]);
 
@@ -809,7 +831,7 @@ const App = () => {
     <div className="p-2 sm:p-6 md:p-8">
       <div className="max-w-md md:max-w-5xl mx-auto space-y-4 md:space-y-6 transition-all duration-300">
         
-        {/* Header - 不受 Zoom 影響 */}
+        {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center glass-panel p-4 md:p-6 px-5 md:px-8 rounded-[2rem] shadow-xl z-50 relative gap-4 md:gap-0 border border-white/80">
           <a href="https://www.facebook.com/PointsToMiles/" target="_blank" rel="noopener noreferrer" className="flex items-center text-left hover:scale-[1.02] transition-transform cursor-pointer group">
             <img 
@@ -854,7 +876,7 @@ const App = () => {
               <button onClick={() => setMode('transit')} className={`flex-1 py-2.5 md:py-3.5 text-xs md:text-sm font-bold rounded-xl md:rounded-2xl transition-all duration-300 z-10 ${mode==='transit'?'bg-gradient-to-r from-[#006564] to-[#008080] text-white shadow-lg transform scale-[1.01]':'text-slate-500 hover:bg-slate-50/50'}`}>轉機 (混合艙)</button>
             </div>
             <button onClick={handleReset} className="glass-panel py-3 md:py-0 px-6 md:px-8 rounded-2xl shadow-md text-slate-500 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center gap-2 text-xs font-black active:scale-95 group border border-white">
-              <RotateCcw size={18} className="group-hover:-rotate-180 transition-transform duration-700" /> 重設所有設定
+              <RotateCcw size={18} className="group-hover:-rotate-180 transition-transform duration-700" /> 重設
             </button>
           </div>
 
@@ -878,7 +900,8 @@ const App = () => {
                   <LocationSelector name={t1Name} setName={setT1Name} dist={t1Dist} setDist={setT1Dist} setGroup={setT1Grp} airports={filteredT1Airports} hubForDistance={hub} showDistInput={false} />
                   <select value={t1Cabin} onChange={e=>setT1Cabin(e.target.value)} className={`w-full mt-4 p-3 md:p-4 rounded-xl text-xs md:text-sm cursor-pointer font-bold shadow-inner transition-all duration-300 border-2 ${cabinColors[t1Cabin]}`}>{Object.entries(cabinNames).map(([k,v])=><option key={k} value={k} className="bg-white text-gray-800 font-normal">{v}</option>)}</select>
                 </div>
-                <div className="flex justify-center items-center -my-3 md:my-0 md:-mx-3 relative z-40">
+                
+                <div className="flex justify-center items-center -my-3 md:my-0 md:-mx-3 relative z-20">
                   <div className="bg-white p-1 rounded-full shadow-lg border border-slate-100">
                     <select value={hub} onChange={e => setHub(e.target.value)} className="bg-[#006564] px-5 py-2 md:py-3 rounded-full text-[11px] md:text-xs font-black text-white shadow-inner outline-none cursor-pointer hover:bg-[#004f4e] transition-colors appearance-none text-center min-w-[140px]">
                       <option value="HKG">HKG 香港</option><option value="TPE">TPE 台北</option>
@@ -886,6 +909,7 @@ const App = () => {
                   </div>
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-[1px] bg-slate-200 -z-10 hidden md:block"></div>
                 </div>
+
                 <div className="bg-slate-50/50 p-5 md:p-8 rounded-3xl border border-slate-100 shadow-inner flex-1 transition-all hover:bg-white relative z-10 group">
                   <div className="text-left font-black text-[#006564] text-[10px] md:text-xs mb-4 tracking-[0.2em] uppercase">終點航段 (Leg 2)</div>
                   <LocationSelector name={t2Name} setName={setT2Name} dist={t2Dist} setDist={setT2Dist} setGroup={setT2Grp} airports={filteredT2Airports} hubForDistance={hub} showDistInput={false} />
@@ -902,27 +926,23 @@ const App = () => {
                  <Plane className="absolute -right-10 md:-right-16 -top-10 md:-top-16 w-48 md:w-80 h-48 md:h-80 text-white opacity-5 transform -rotate-12 pointer-events-none" />
                  <div className="relative z-10 space-y-2 md:space-y-4">
                    <p className="text-[10px] md:text-sm font-bold text-teal-200 uppercase tracking-[0.3em]">{mode==='direct'?'直航所需里數':(analysis.isSameCabin ? '兩段同一艙等所需里數' : '混合艙總計所需里數')}</p>
-                   <h2 className="text-6xl md:text-[7rem] md:leading-none font-black drop-shadow-2xl tabular-nums tracking-tighter">{analysis.miles.toLocaleString()} <span className="text-sm md:text-2xl font-black bg-white/20 px-4 py-1 rounded-2xl ml-2 border border-white/10 uppercase">Miles</span></h2>
+                   <h2 className="text-6xl md:text-[7rem] md:leading-none font-black drop-shadow-2xl tabular-nums tracking-tighter">{(analysis.miles || 0).toLocaleString()} <span className="text-sm md:text-2xl font-black bg-white/20 px-4 py-1 rounded-2xl ml-2 border border-white/10 uppercase">Miles</span></h2>
                    <div className="flex flex-wrap justify-center gap-2 md:gap-4 pt-4">
-                     <span className="bg-black/20 backdrop-blur-md px-4 py-1.5 rounded-full text-[10px] md:text-xs font-bold border border-white/10">總距離: {mode==='direct' ? analysis.distance : analysis.totalDist} mi</span>
+                     <span className="bg-black/20 backdrop-blur-md px-4 py-1.5 rounded-full text-[10px] md:text-xs font-bold border border-white/10">總距離: {(mode==='direct' ? analysis.distance : analysis.totalDist) || 0} mi</span>
                      {mode === 'transit' && (
-                       <span className="bg-black/20 backdrop-blur-md px-4 py-1.5 rounded-full text-[10px] md:text-xs font-bold border border-white/10">Leg1: {analysis.dist1} mi / Leg2: {analysis.dist2} mi</span>
+                       <span className="bg-black/20 backdrop-blur-md px-4 py-1.5 rounded-full text-[10px] md:text-xs font-bold border border-white/10">Leg1: {analysis.dist1 || 0} mi / Leg2: {analysis.dist2 || 0} mi</span>
                      )}
                      <span className="bg-[#f37c4b] px-4 py-1.5 rounded-full text-[10px] md:text-xs font-black border border-white/10 shadow-lg">結算分區: {analysis.zone}</span>
                    </div>
-                   {mode === 'transit' && analysis.isSameCabin && (
-                     <div className="mt-6 text-[10px] md:text-xs text-teal-50 bg-white/10 rounded-2xl py-3 px-6 border border-white/20 text-left leading-relaxed max-w-2xl mx-auto backdrop-blur-sm">
-                       <Info size={14} className="inline mr-2" /> 溫馨提示：因兩段航程選擇了相同艙位，系統按「全程最高艙位」標準直接計算，混合艙比例算法不在此情況下生效。
-                     </div>
-                   )}
                  </div>
               </div>
+              
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
-                {mode === 'transit' && analysis.strategies.map(s => (
+                {mode === 'transit' && analysis.strategies && analysis.strategies.map(s => (
                   <div key={s.id} className={`p-6 md:p-8 rounded-[2rem] border-2 flex flex-row md:flex-col justify-between md:justify-center items-center transition-all duration-500 ${s.id === analysis.bestId ? 'bg-orange-50/90 border-orange-300 shadow-2xl shadow-orange-500/10 transform md:-translate-y-2 scale-[1.02] md:scale-105 z-10' : 'bg-white border-slate-100 hover:border-slate-200'}`}>
                     <div className="text-left md:text-center w-full">
                       <p className={`text-[10px] md:text-xs font-black uppercase tracking-[0.1em] mb-1 md:mb-3 ${s.id === analysis.bestId ? 'text-orange-600' : 'text-slate-400'}`}>{s.name}</p>
-                      <p className={`text-2xl md:text-4xl font-black ${s.id === analysis.bestId ? 'text-slate-900' : 'text-slate-700'}`}>{s.miles.toLocaleString()} <span className="text-[10px] md:text-base font-bold opacity-40 uppercase">Mi</span></p>
+                      <p className={`text-2xl md:text-4xl font-black ${s.id === analysis.bestId ? 'text-slate-900' : 'text-slate-700'}`}>{(s.miles || 0).toLocaleString()} <span className="text-[10px] md:text-base font-bold opacity-40 uppercase">Mi</span></p>
                     </div>
                     {s.id === analysis.bestId && (
                       <div className="flex flex-col items-end md:items-center md:mt-5">
@@ -932,15 +952,6 @@ const App = () => {
                   </div>
                 ))}
               </div>
-              {mode === 'transit' && analysis.bestId === 'separate' && (
-                <div className="mt-4 p-5 md:p-6 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-900 rounded-[2rem] text-[11px] md:text-sm border border-amber-200/50 flex items-start gap-3 md:gap-4 shadow-sm text-left leading-relaxed animate-fade-in-up">
-                  <div className="bg-amber-500 p-2 rounded-xl text-white shadow-md flex-shrink-0"><Info size={20} /></div>
-                  <div>
-                    <strong className="block text-amber-700 mb-1">風險提醒：最划算換法為「分開單程兌換」</strong>
-                    這代表你需要分開兩張機票預訂。留意<strong>行李可能無法直掛 (Check-through)</strong>；且兩段分開收取的<strong>稅金通常會比單一混合艙更高</strong>，請綜合衡量。
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -958,7 +969,7 @@ const App = () => {
                   <Download size={16} /> 輸出網頁成品 HTML
                 </button>
                 <button onClick={() => setShowMgr(!showMgr)} className="text-slate-500 hover:text-[#006564] flex items-center justify-center gap-2 font-black text-xs transition-all px-4 py-3 hover:bg-white rounded-2xl">
-                  <Settings size={16} className={showMgr ? "animate-spin" : ""} style={{ animationDuration: '4s' }} /> {showMgr ? '隱藏後台' : '管理 83 個航點'}
+                  <Settings size={16} className={showMgr ? "animate-spin" : ""} style={{ animationDuration: '4s' }} /> {showMgr ? '隱藏後台' : '維護自訂航點'}
                 </button>
               </div>
               {showMgr && (
@@ -966,13 +977,13 @@ const App = () => {
                   <h3 className="font-black text-[#006564] text-sm md:text-base text-left tracking-[0.2em] flex items-center gap-2"><Settings size={20}/> 航點資料數據管理</h3>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-left items-end">
                     <div className="col-span-1"><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">IATA</label>
-                    <input type="text" placeholder="如 TPE" value={mIata} onChange={e=>setMIata(e.target.value.toUpperCase())} className="w-full p-3 md:p-4 border border-slate-200 rounded-xl md:rounded-2xl text-xs md:text-sm outline-none focus:ring-2 focus:ring-[#006564] shadow-inner" /></div>
+                    <input type="text" placeholder="如 TPE" value={mIata} onChange={e=>setMIata(e.target.value.toUpperCase())} className="w-full p-3 md:p-4 border border-slate-200 rounded-xl md:rounded-2xl text-xs md:text-sm" /></div>
                     <div className="col-span-1"><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Name</label>
-                    <input type="text" placeholder="台北 Taipei" value={mName} onChange={e=>setMName(e.target.value)} className="w-full p-3 md:p-4 border border-slate-200 rounded-xl md:rounded-2xl text-xs md:text-sm outline-none focus:ring-2 focus:ring-[#006564] shadow-inner" /></div>
+                    <input type="text" placeholder="台北 Taipei" value={mName} onChange={e=>setMName(e.target.value)} className="w-full p-3 md:p-4 border border-slate-200 rounded-xl md:rounded-2xl text-xs md:text-sm" /></div>
                     <div className="col-span-1"><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Dist</label>
-                    <input type="number" placeholder="距離" value={mDist} onChange={e=>setMDist(e.target.value)} className="w-full p-3 md:p-4 border border-slate-200 rounded-xl md:rounded-2xl text-xs md:text-sm outline-none focus:ring-2 focus:ring-[#006564] shadow-inner" /></div>
+                    <input type="number" placeholder="距離" value={mDist} onChange={e=>setMDist(e.target.value)} className="w-full p-3 md:p-4 border border-slate-200 rounded-xl md:rounded-2xl text-xs md:text-sm" /></div>
                     <div className="col-span-1"><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Zone</label>
-                    <select value={mGrp} onChange={e=>setMGrp(Number(e.target.value))} className="w-full p-3 md:p-4 border border-slate-200 rounded-xl md:rounded-2xl text-xs md:text-sm bg-white outline-none cursor-pointer focus:ring-2 focus:ring-[#006564] shadow-inner">
+                    <select value={mGrp} onChange={e=>setMGrp(Number(e.target.value))} className="w-full p-3 md:p-4 border border-slate-200 rounded-xl md:rounded-2xl text-xs md:text-sm bg-white">
                       <option value={1}>超短途</option><option value={2}>短途 1</option><option value={3}>短途 2</option>
                       <option value={4}>中途</option><option value={5}>長途</option><option value={6}>超長途</option>
                     </select></div>
@@ -981,18 +992,6 @@ const App = () => {
                       setAirports({...airports, [mIata]: {iata: mIata, name: mName, distance: Number(mDist), group: mGrp}});
                       setMIata(''); setMName(''); setMDist('');
                     }} className="col-span-2 md:col-span-1 bg-gradient-to-r from-[#006564] to-[#008080] text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-lg active:scale-95">新增</button>
-                  </div>
-                  <div className="max-h-56 md:max-h-80 overflow-y-auto custom-scrollbar border border-slate-100 rounded-3xl bg-slate-50/50 text-xs shadow-inner">
-                    {Object.values(airports).sort((a,b)=>a.iata.localeCompare(b.iata)).map(a => (
-                      <div key={a.iata} className="p-4 border-b border-slate-100 last:border-0 flex justify-between items-center hover:bg-white transition-colors group">
-                        <div className="flex gap-4 items-center text-left">
-                          <span className="bg-white px-2 py-1 rounded shadow-sm font-black text-[10px] md:text-xs border border-slate-200 text-[#006564]">{a.iata}</span>
-                          <span className="font-bold text-slate-600">{a.name}</span>
-                          <span className="text-slate-400 font-mono tracking-tighter">{a.distance} mi</span>
-                        </div>
-                        <button onClick={()=>{ const n={...airports}; delete n[a.iata]; setAirports(n); }} className="text-slate-300 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
-                      </div>
-                    ))}
                   </div>
                 </div>
               )}
